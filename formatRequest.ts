@@ -15,15 +15,15 @@ interface MessageCreateParamsBase {
  */
 function validateOpenAIToolCalls(messages: any[]): any[] {
   const validatedMessages: any[] = [];
-  
+
   for (let i = 0; i < messages.length; i++) {
     const currentMessage = { ...messages[i] };
-    
+
     // Process assistant messages with tool_calls
     if (currentMessage.role === "assistant" && currentMessage.tool_calls) {
       const validToolCalls: any[] = [];
       const removedToolCallIds: string[] = [];
-      
+
       // Collect all immediately following tool messages
       const immediateToolMessages: any[] = [];
       let j = i + 1;
@@ -31,43 +31,43 @@ function validateOpenAIToolCalls(messages: any[]): any[] {
         immediateToolMessages.push(messages[j]);
         j++;
       }
-      
+
       // For each tool_call, check if there's an immediately following tool message
       currentMessage.tool_calls.forEach((toolCall: any) => {
-        const hasImmediateToolMessage = immediateToolMessages.some(toolMsg => 
+        const hasImmediateToolMessage = immediateToolMessages.some(toolMsg =>
           toolMsg.tool_call_id === toolCall.id
         );
-        
+
         if (hasImmediateToolMessage) {
           validToolCalls.push(toolCall);
         } else {
           removedToolCallIds.push(toolCall.id);
         }
       });
-      
+
       // Update the assistant message
       if (validToolCalls.length > 0) {
         currentMessage.tool_calls = validToolCalls;
       } else {
         delete currentMessage.tool_calls;
       }
-      
-      
+
+
       // Only include message if it has content or valid tool_calls
       if (currentMessage.content || currentMessage.tool_calls) {
         validatedMessages.push(currentMessage);
       }
     }
-    
+
     // Process tool messages
     else if (currentMessage.role === "tool") {
       let hasImmediateToolCall = false;
-      
+
       // Check if the immediately preceding assistant message has matching tool_call
       if (i > 0) {
         const prevMessage = messages[i - 1];
         if (prevMessage.role === "assistant" && prevMessage.tool_calls) {
-          hasImmediateToolCall = prevMessage.tool_calls.some((toolCall: any) => 
+          hasImmediateToolCall = prevMessage.tool_calls.some((toolCall: any) =>
             toolCall.id === currentMessage.tool_call_id
           );
         } else if (prevMessage.role === "tool") {
@@ -75,7 +75,7 @@ function validateOpenAIToolCalls(messages: any[]): any[] {
           for (let k = i - 1; k >= 0; k--) {
             if (messages[k].role === "tool") continue;
             if (messages[k].role === "assistant" && messages[k].tool_calls) {
-              hasImmediateToolCall = messages[k].tool_calls.some((toolCall: any) => 
+              hasImmediateToolCall = messages[k].tool_calls.some((toolCall: any) =>
                 toolCall.id === currentMessage.tool_call_id
               );
             }
@@ -83,147 +83,174 @@ function validateOpenAIToolCalls(messages: any[]): any[] {
           }
         }
       }
-      
+
       if (hasImmediateToolCall) {
         validatedMessages.push(currentMessage);
       }
     }
-    
+
     // For all other message types, include as-is
     else {
       validatedMessages.push(currentMessage);
     }
   }
-  
+
   return validatedMessages;
 }
 
-export function mapModel(anthropicModel: string): string {
+/**
+ * Model mapping configuration from environment variables
+ */
+export interface ModelMappingConfig {
+  opus?: string;
+  sonnet?: string;
+  haiku?: string;
+}
+
+/**
+ * Maps Anthropic model names to OpenRouter model IDs.
+ * 
+ * Priority:
+ * 1. If model already contains '/', it's an OpenRouter model ID - return as-is
+ * 2. Use environment variable mapping if configured
+ * 3. Fall back to default Anthropic models on OpenRouter
+ * 
+ * @param anthropicModel - The model name from the request (e.g., "claude-opus-4-5", "opus", "claude-3-5-haiku-latest")
+ * @param config - Optional mapping configuration from environment variables
+ * @returns OpenRouter-compatible model ID
+ */
+export function mapModel(anthropicModel: string, config?: ModelMappingConfig): string {
   // If model already contains '/', it's an OpenRouter model ID - return as-is
   if (anthropicModel.includes('/')) {
     return anthropicModel;
   }
-  
+
+  // Check for model type and map accordingly
   if (anthropicModel.includes('haiku')) {
-    return 'anthropic/claude-3.5-haiku';
+    // Use configured haiku mapping, or default to Anthropic's Haiku on OpenRouter
+    return config?.haiku || 'anthropic/claude-3.5-haiku';
   } else if (anthropicModel.includes('sonnet')) {
-    return 'anthropic/claude-sonnet-4';
+    // Use configured sonnet mapping, or default to Anthropic's Sonnet on OpenRouter
+    return config?.sonnet || 'anthropic/claude-sonnet-4';
   } else if (anthropicModel.includes('opus')) {
-    return 'anthropic/claude-opus-4';
+    // Use configured opus mapping, or default to Anthropic's Opus on OpenRouter
+    return config?.opus || 'anthropic/claude-opus-4';
   }
+
+  // Unknown model - pass through as-is
   return anthropicModel;
 }
 
-export function formatAnthropicToOpenAI(body: MessageCreateParamsBase): any {
+export function formatAnthropicToOpenAI(body: MessageCreateParamsBase, modelMappingConfig?: ModelMappingConfig): any {
   const { model, messages, system = [], temperature, tools, stream } = body;
 
   const openAIMessages = Array.isArray(messages)
     ? messages.flatMap((anthropicMessage) => {
-        const openAiMessagesFromThisAnthropicMessage: any[] = [];
+      const openAiMessagesFromThisAnthropicMessage: any[] = [];
 
-        if (!Array.isArray(anthropicMessage.content)) {
-          if (typeof anthropicMessage.content === "string") {
-            openAiMessagesFromThisAnthropicMessage.push({
-              role: anthropicMessage.role,
-              content: anthropicMessage.content,
-            });
-          }
-          return openAiMessagesFromThisAnthropicMessage;
-        }
-
-        if (anthropicMessage.role === "assistant") {
-          const assistantMessage: any = {
-            role: "assistant",
-            content: null,
-          };
-          let textContent = "";
-          const toolCalls: any[] = [];
-
-          anthropicMessage.content.forEach((contentPart) => {
-            if (contentPart.type === "text") {
-              textContent += (typeof contentPart.text === "string"
-                ? contentPart.text
-                : JSON.stringify(contentPart.text)) + "\n";
-            } else if (contentPart.type === "tool_use") {
-              toolCalls.push({
-                id: contentPart.id,
-                type: "function",
-                function: {
-                  name: contentPart.name,
-                  arguments: JSON.stringify(contentPart.input),
-                },
-              });
-            }
+      if (!Array.isArray(anthropicMessage.content)) {
+        if (typeof anthropicMessage.content === "string") {
+          openAiMessagesFromThisAnthropicMessage.push({
+            role: anthropicMessage.role,
+            content: anthropicMessage.content,
           });
-
-          const trimmedTextContent = textContent.trim();
-          if (trimmedTextContent.length > 0) {
-            assistantMessage.content = trimmedTextContent;
-          }
-          if (toolCalls.length > 0) {
-            assistantMessage.tool_calls = toolCalls;
-          }
-          if (assistantMessage.content || (assistantMessage.tool_calls && assistantMessage.tool_calls.length > 0)) {
-            openAiMessagesFromThisAnthropicMessage.push(assistantMessage);
-          }
-        } else if (anthropicMessage.role === "user") {
-          let userTextMessageContent = "";
-          const subsequentToolMessages: any[] = [];
-
-          anthropicMessage.content.forEach((contentPart) => {
-            if (contentPart.type === "text") {
-              userTextMessageContent += (typeof contentPart.text === "string"
-                ? contentPart.text
-                : JSON.stringify(contentPart.text)) + "\n";
-            } else if (contentPart.type === "tool_result") {
-              subsequentToolMessages.push({
-                role: "tool",
-                tool_call_id: contentPart.tool_use_id,
-                content: typeof contentPart.content === "string"
-                  ? contentPart.content
-                  : JSON.stringify(contentPart.content),
-              });
-            }
-          });
-
-          const trimmedUserText = userTextMessageContent.trim();
-          if (trimmedUserText.length > 0) {
-            openAiMessagesFromThisAnthropicMessage.push({
-              role: "user",
-              content: trimmedUserText,
-            });
-          }
-          openAiMessagesFromThisAnthropicMessage.push(...subsequentToolMessages);
         }
         return openAiMessagesFromThisAnthropicMessage;
-      })
+      }
+
+      if (anthropicMessage.role === "assistant") {
+        const assistantMessage: any = {
+          role: "assistant",
+          content: null,
+        };
+        let textContent = "";
+        const toolCalls: any[] = [];
+
+        anthropicMessage.content.forEach((contentPart) => {
+          if (contentPart.type === "text") {
+            textContent += (typeof contentPart.text === "string"
+              ? contentPart.text
+              : JSON.stringify(contentPart.text)) + "\n";
+          } else if (contentPart.type === "tool_use") {
+            toolCalls.push({
+              id: contentPart.id,
+              type: "function",
+              function: {
+                name: contentPart.name,
+                arguments: JSON.stringify(contentPart.input),
+              },
+            });
+          }
+        });
+
+        const trimmedTextContent = textContent.trim();
+        if (trimmedTextContent.length > 0) {
+          assistantMessage.content = trimmedTextContent;
+        }
+        if (toolCalls.length > 0) {
+          assistantMessage.tool_calls = toolCalls;
+        }
+        if (assistantMessage.content || (assistantMessage.tool_calls && assistantMessage.tool_calls.length > 0)) {
+          openAiMessagesFromThisAnthropicMessage.push(assistantMessage);
+        }
+      } else if (anthropicMessage.role === "user") {
+        let userTextMessageContent = "";
+        const subsequentToolMessages: any[] = [];
+
+        anthropicMessage.content.forEach((contentPart) => {
+          if (contentPart.type === "text") {
+            userTextMessageContent += (typeof contentPart.text === "string"
+              ? contentPart.text
+              : JSON.stringify(contentPart.text)) + "\n";
+          } else if (contentPart.type === "tool_result") {
+            subsequentToolMessages.push({
+              role: "tool",
+              tool_call_id: contentPart.tool_use_id,
+              content: typeof contentPart.content === "string"
+                ? contentPart.content
+                : JSON.stringify(contentPart.content),
+            });
+          }
+        });
+
+        const trimmedUserText = userTextMessageContent.trim();
+        if (trimmedUserText.length > 0) {
+          openAiMessagesFromThisAnthropicMessage.push({
+            role: "user",
+            content: trimmedUserText,
+          });
+        }
+        openAiMessagesFromThisAnthropicMessage.push(...subsequentToolMessages);
+      }
+      return openAiMessagesFromThisAnthropicMessage;
+    })
     : [];
 
   const systemMessages = Array.isArray(system)
     ? system.map((item) => {
-        const content: any = {
-          type: "text",
-          text: item.text
-        };
-        if (model.includes('claude')) {
-          content.cache_control = {"type": "ephemeral"};
-        }
-        return {
-          role: "system",
-          content: [content]
-        };
-      })
-    : [{
+      const content: any = {
+        type: "text",
+        text: item.text
+      };
+      if (model.includes('claude')) {
+        content.cache_control = { "type": "ephemeral" };
+      }
+      return {
         role: "system",
-        content: [{
-          type: "text",
-          text: system,
-          ...(model.includes('claude') ? { cache_control: {"type": "ephemeral"} } : {})
-        }]
-      }];
+        content: [content]
+      };
+    })
+    : [{
+      role: "system",
+      content: [{
+        type: "text",
+        text: system,
+        ...(model.includes('claude') ? { cache_control: { "type": "ephemeral" } } : {})
+      }]
+    }];
 
   const data: any = {
-    model: mapModel(model),
+    model: mapModel(model, modelMappingConfig),
     messages: [...systemMessages, ...openAIMessages],
     temperature,
     stream,

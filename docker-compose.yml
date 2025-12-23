@@ -3,8 +3,8 @@ services:
     build: .
     ports:
       - "8787:8787"
-    environment:
-      - OPENROUTER_BASE_URL=${OPENROUTER_BASE_URL:-https://openrouter.ai/api/v1}
+    env_file:
+      - .env
     volumes:
       - .:/app
       - /app/node_modules
@@ -17,3 +17,18 @@ services:
       timeout: 10s
       retries: 3
       start_period: 40s
+      
+  # Config server for saving settings to .env file
+  config-server:
+    build:
+      context: .
+      dockerfile: Dockerfile.config
+    ports:
+      - "8788:8788"
+    volumes:
+      - .:/app
+      - /app/node_modules
+    working_dir: /app
+    restart: unless-stopped
+    depends_on:
+      - y-router

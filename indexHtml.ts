@@ -230,6 +230,7 @@ export ANTHROPIC_SMALL_FAST_MODEL="google/gemini-2.5-flash"</div>
         </div>
 
         <div class="footer-links">
+            <a href="/settings">⚙️ Settings</a>
             <a href="https://github.com/luohy15/y-router" target="_blank">y-router</a>
             <a href="https://openrouter.ai" target="_blank">OpenRouter</a>
             <a href="https://claude.ai/code" target="_blank">Claude Code</a>
