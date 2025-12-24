@@ -108,38 +108,44 @@ export interface ModelMappingConfig {
 }
 
 /**
- * Maps Anthropic model names to OpenRouter model IDs.
+ * Maps model names to OpenRouter model IDs.
  * 
  * Priority:
- * 1. If model already contains '/', it's an OpenRouter model ID - return as-is
- * 2. Use environment variable mapping if configured
- * 3. Fall back to default Anthropic models on OpenRouter
+ * 1. If config is set for the model type (opus/sonnet/haiku), use that mapping
+ *    This works for BOTH shorthand names (e.g., "sonnet") AND full IDs (e.g., "moonshotai/kimi-k2")
+ * 2. Fall back to default Anthropic models on OpenRouter
  * 
- * @param anthropicModel - The model name from the request (e.g., "claude-opus-4-5", "opus", "claude-3-5-haiku-latest")
+ * @param requestModel - The model name from the request
  * @param config - Optional mapping configuration from environment variables
  * @returns OpenRouter-compatible model ID
  */
-export function mapModel(anthropicModel: string, config?: ModelMappingConfig): string {
-  // If model already contains '/', it's an OpenRouter model ID - return as-is
-  if (anthropicModel.includes('/')) {
-    return anthropicModel;
-  }
+export function mapModel(requestModel: string, config?: ModelMappingConfig): string {
+  const modelLower = requestModel.toLowerCase();
 
-  // Check for model type and map accordingly
-  if (anthropicModel.includes('haiku')) {
-    // Use configured haiku mapping, or default to Anthropic's Haiku on OpenRouter
+  // Check for model type keywords and map accordingly
+  // This works for both "haiku" and "claude-3-5-haiku-latest" and even "moonshotai/kimi-k2" (if user wants to override)
+  if (modelLower.includes('haiku')) {
     return config?.haiku || 'anthropic/claude-3.5-haiku';
-  } else if (anthropicModel.includes('sonnet')) {
-    // Use configured sonnet mapping, or default to Anthropic's Sonnet on OpenRouter
+  } else if (modelLower.includes('sonnet')) {
     return config?.sonnet || 'anthropic/claude-sonnet-4';
-  } else if (anthropicModel.includes('opus')) {
-    // Use configured opus mapping, or default to Anthropic's Opus on OpenRouter
+  } else if (modelLower.includes('opus')) {
     return config?.opus || 'anthropic/claude-opus-4';
   }
 
-  // Unknown model - pass through as-is
-  return anthropicModel;
+  // For models that don't match any keyword (like "moonshotai/kimi-k2" or "gpt-4"):
+  // Check if it's a primary model type that should use sonnet mapping
+  // This catches cases where Auto-Claude sends full OpenRouter IDs
+  if (config?.sonnet && requestModel.includes('/')) {
+    // If user has configured a sonnet mapping, use it for any unknown full model ID
+    // This ensures that even if Auto-Claude sends "moonshotai/kimi-k2", 
+    // it gets mapped to whatever the user configured for sonnet
+    return config.sonnet;
+  }
+
+  // Pass through as-is if no mapping applies
+  return requestModel;
 }
+
 
 export function formatAnthropicToOpenAI(body: MessageCreateParamsBase, modelMappingConfig?: ModelMappingConfig): any {
   const { model, messages, system = [], temperature, tools, stream } = body;

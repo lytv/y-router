@@ -77,11 +77,12 @@ MODEL_MAP_HAIKU=${config.MODEL_MAP_HAIKU || ''}
     }
 }
 
-// Restart y-router container
+// Restart y-router container (need down/up to reload .env)
 function restartServer() {
     return new Promise((resolve) => {
-        console.log('Restarting y-router container...');
-        exec('docker restart y-router-y-router-1', { cwd: __dirname }, (error, stdout, stderr) => {
+        console.log('Restarting y-router container (down/up to reload .env)...');
+        // Need to use down then up to reload .env file - restart doesn't reload env
+        exec('docker compose down y-router && docker compose up y-router -d', { cwd: __dirname }, (error, stdout, stderr) => {
             if (error) {
                 console.error('Restart error:', error);
                 console.error('Stderr:', stderr);
@@ -93,6 +94,7 @@ function restartServer() {
         });
     });
 }
+
 
 const server = http.createServer(async (req, res) => {
     const url = new URL(req.url || '/', `http://localhost:${CONFIG_PORT}`);
