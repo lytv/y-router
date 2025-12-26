@@ -3,9 +3,11 @@ export function formatOpenAIToAnthropic(completion: any, model: string): any {
 
   let content: any = [];
   if (completion.choices[0].message.content) {
-    content = [{ text: completion.choices[0].message.content, type: "text" }];
-  } else if (completion.choices[0].message.tool_calls) {
-    content = completion.choices[0].message.tool_calls.map((item: any) => {
+    content.push({ text: completion.choices[0].message.content, type: "text" });
+  }
+
+  if (completion.choices[0].message.tool_calls) {
+    const toolBlocks = completion.choices[0].message.tool_calls.map((item: any) => {
       return {
         type: 'tool_use',
         id: item.id,
@@ -13,6 +15,7 @@ export function formatOpenAIToAnthropic(completion: any, model: string): any {
         input: item.function?.arguments ? JSON.parse(item.function.arguments) : {},
       };
     });
+    content.push(...toolBlocks);
   }
 
   const result = {
@@ -20,7 +23,7 @@ export function formatOpenAIToAnthropic(completion: any, model: string): any {
     type: "message",
     role: "assistant",
     content: content,
-    stop_reason: completion.choices[0].finish_reason === 'tool_calls' ? "tool_use" : "end_turn",
+    stop_reason: (completion.choices[0].finish_reason === 'tool_calls' || completion.choices[0].message.tool_calls) ? "tool_use" : "end_turn",
     stop_sequence: null,
     model,
   };

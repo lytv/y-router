@@ -4,6 +4,7 @@ interface MessageCreateParamsBase {
   system?: any;
   temperature?: number;
   tools?: any[];
+  tool_choice?: any;
   stream?: boolean;
 }
 
@@ -271,6 +272,17 @@ export function formatAnthropicToOpenAI(body: MessageCreateParamsBase, modelMapp
         parameters: item.input_schema,
       },
     }));
+  }
+
+  // Handle tool_choice translation from Anthropic to OpenAI format
+  if (body.tool_choice) {
+    if (body.tool_choice.type === 'auto') {
+      data.tool_choice = 'auto';
+    } else if (body.tool_choice.type === 'any' || body.tool_choice.type === 'required') {
+      data.tool_choice = 'required';
+    } else if (body.tool_choice.type === 'tool' && body.tool_choice.name) {
+      data.tool_choice = { type: 'function', function: { name: body.tool_choice.name } };
+    }
   }
 
   // Validate OpenAI messages to ensure complete tool_calls/tool message pairing

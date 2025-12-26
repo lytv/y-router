@@ -156,10 +156,9 @@ MODEL_MAP_HAIKU=${haiku || ''}
         haiku: env.MODEL_MAP_HAIKU,
       };
 
-      const openaiRequest = formatAnthropicToOpenAI(anthropicRequest, modelMappingConfig);
+      const openaiRequest = formatAnthropicToOpenAI(anthropicRequest as any, modelMappingConfig);
       const bearerToken = request.headers.get("X-Api-Key") ||
         request.headers.get("Authorization")?.replace("Bearer ", "");
-
       const baseUrl = env.OPENROUTER_BASE_URL || 'https://openrouter.ai/api/v1';
       const openaiResponse = await fetch(`${baseUrl}/chat/completions`, {
         method: "POST",
